@@ -36,7 +36,7 @@ Subtitle-Driven-AI-Clipper 是一個基於 Python 的應用程式，它利用先
 
 * **Python:** 確保你安裝了 Python 3.8 或更新版本。
 * **FFmpeg:** 下載 FFmpeg 可執行檔。請訪問 [FFmpeg 官網](https://ffmpeg.org/download.html) 下載適用於你作業系統的版本。下載後，請確保 `ffmpeg.exe` (Windows) 或 `ffmpeg` (Linux/macOS) 可執行檔可以被程式訪問到（通常是放在程式執行檔所在目錄旁的 `ffmpeg/bin/` 資料夾中）。
-* **OpenAI API Key (如果使用 GPT):** 如果你選擇使用 OpenAI GPT 模型，你需要一個有效的 OpenAI API Key。
+* **OpenAI API Key (如果使用 GPT):** 如果你選擇使用 OpenAI GPT 模型，你需要一個有效的 OpenAI API Key。(目前無法修改模型,使用4o-mini)
 * **Ollama (如果使用 Ollama):** 如果你選擇使用本地的 Ollama 模型，你需要先安裝並運行 Ollama 服務，並下載所需的模型。請訪問 [Ollama 官網](https://ollama.com/) 了解安裝方法。
 
 ### 獲取程式碼
