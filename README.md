@@ -4,9 +4,19 @@ Subtitle-Driven-AI-Clipper 是一個基於 Python 的應用程式，它利用先
 
 這款工具特別適合用於從訪談、演講、課程或任何有字幕的影片中快速提取精華片段，節省手動觀看和剪輯的時間。
 
-> **⚠️ 已知問題與注意事項 (Important Notice)**
+---
+
+### ⚠️ 已知問題與注意事項 / Important Notice
+
+> **[中文]**
 > 目前因為 FFmpeg 切片處理與影音幀率/時間戳記的精確度問題，**在處理較長的影片時，合併後的影片可能會出現字幕與語音對不齊（音畫不同步或字幕偏移）的狀況**。這個問題目前尚未修復。
 > **因此，本專案目前定調為「概念驗證 (Proof of Concept)」，僅供開發與學術概念參考，暫不建議直接用於生產環境。**
+
+> **[English]**
+> Due to precision issues with **FFmpeg slicing and A/V timestamps (PTS)**, users may encounter **synchronization offsets (audio-to-video or subtitle-to-audio desync)** when processing longer videos. This issue is currently unresolved.
+> **Therefore, this project is strictly a "Proof of Concept (PoC)." It is intended for development and academic purposes only and is not recommended for use in production environments.**
+
+---
 
 ## 🚀 主要功能
 
