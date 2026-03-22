@@ -1,62 +1,85 @@
-# Subtitle-Driven-AI-Clipper
 
-Subtitle-Driven-AI-Clipper 是一個基於 Python 的應用程式，它利用先進的 AI 模型（如 OpenAI GPT 或 本地 Ollama）和 Whisper 語音轉文字技術，幫助使用者自動化影片的剪輯過程。本工具的核心理念是**通過分析影片的字幕內容，並結合使用者自定義的 AI 提示詞，智能地決定需要保留的影片片段**。隨後，它使用 FFmpeg 處理影片的剪輯與合併，並提供 GUI 界面供使用者編輯與嵌入最終的字幕。
 
-這款工具特別適合用於從訪談、演講、課程或任何有字幕的影片中快速提取精華片段，節省手動觀看和剪輯的時間。
+***
 
----
+# 🎬 Subtitle-Driven-AI-Clipper (V2 終極升級版)
 
-### ⚠️ 已知問題與注意事項 / Important Notice
+Subtitle-Driven-AI-Clipper 是一個基於 Python 開發的強大自動化影音剪輯工具。它巧妙地結合了 **WhisperX 字級語音辨識** 與 **大型語言模型 (OpenAI GPT / 本地 Ollama)**，透過「閱讀並理解」影片的對話內容，讓 AI 自動為你挑選、萃取出最精華的片段，並無縫合併為一支高質量的短影音。
 
-> **[中文]**
-> 目前因為 FFmpeg 切片處理與影音幀率/時間戳記的精確度問題，**在處理較長的影片時，合併後的影片可能會出現字幕與語音對不齊（音畫不同步或字幕偏移）的狀況**。這個問題目前尚未修復。
-> **因此，本專案目前定調為「概念驗證 (Proof of Concept)」，僅供開發與學術概念參考，暫不建議直接用於生產環境。**
-
-> **[English]**
-> Due to precision issues with **FFmpeg slicing and A/V timestamps (PTS)**, users may encounter **synchronization offsets (audio-to-video or subtitle-to-audio desync)** when processing longer videos. This issue is currently unresolved.
-> **Therefore, this project is strictly a "Proof of Concept (PoC)." It is intended for development and academic purposes only and is not recommended for use in production environments.**
+這款工具特別適合用於：**遊戲實況精華剪輯、Podcast 訪談濃縮、長篇演講摘要**，能為創作者省下數十小時的「肉眼找素材」時間。
 
 ---
 
-## 🚀 主要功能
+## 🔥 V2 版本重大突破 (Goodbye, 影音不同步！)
 
-* **雙 AI 引擎支援 (GPT & Ollama)：** 可無縫切換使用 OpenAI API，或完全免費且注重隱私的本地 Ollama 模型進行字幕分析。
-* **字幕自動生成：** 使用強大的 Whisper 模型為原始影片生成精確的字幕 (如果原始影片沒有字幕檔)。
-* **AI 智能剪輯決策：** 將字幕內容提供給可配置的 AI 模型，由 AI 根據內建或使用者自定義的提示詞決定要保留的影片片段時間範圍。
-* **靈活的提示詞配置：** 透過 GUI 設定界面，使用者可以自由編輯 AI 提示詞模板，以指導 AI 根據特定標準（如剪輯亮點、提取特定主題、控制最終時長等）進行剪輯。
-* **影片片段精確剪輯與合併：** 使用 FFmpeg 無損剪輯 AI 選定的影片片段，並將它們合併成一個新的影片。
-* **合併後字幕重新生成與編輯：** 對合併後的影片重新生成精確的字幕，並提供 GUI 編輯界面供使用者精校字幕內容。
-* **字幕嵌入影片：** 將編輯好的字幕永久燒錄到最終影片中。
-* **直觀的 GUI 界面：** 提供圖形使用者界面，簡化操作流程。
-* **外部依賴管理：** FFmpeg、配置檔 (`config.json`)、輸出資料夾 (`out/`) 均可放置在應用程式執行檔的相對路徑旁，方便打包和發佈。
+舊版本在處理長影片時，常遇到 FFmpeg `-c copy` 造成的關鍵幀誤差與音畫不同步。**V2 版本進行了底層邏輯的全面重構，徹底解決了這些痛點：**
 
-## 🎬 工作流程
+* **強制固定幀率 (CFR) 預處理：** 導入素材時自動將所有影片洗成標準 30 FPS 與 44100Hz 音軌，徹底消滅手機或 OBS 錄影常見的可變幀率 (VFR) 延遲災難。
+* **導入 WhisperX 毫秒級強制對齊：** 捨棄傳統 Whisper，改用精準度極高的 WhisperX。不僅支援「字級 (Word-level)」時間戳記，更能透過「語音停頓」進行完美的智慧斷句。
+* **LLM 盲選編號機制 (防呆設計)：** 破解了 AI 時間數學極差的弱點！程式會將字幕轉為 `[1] 句子`、`[2] 句子` 的格式餵給 AI，AI 只需要回答「要保留的編號」，程式會自動去對應精準的毫秒時間，準確率直逼 100%。
+* **精準重新編碼剪輯：** 捨棄粗糙的 `-c copy` 剪裁，改用 `libx264` 進行毫秒級精確切割，剪輯點乾淨俐落，畫面絕不卡頓。
 
-1. 使用者選擇原始影片。
-2. 程式自動生成原始影片字幕 (如果沒有)。
-3. 程式將原始字幕內容發送給配置好的 AI 模型 (OpenAI 或 Ollama)。
-4. AI 返回建議保留的影片時間範圍列表。
-5. 程式根據 AI 回應，使用 FFmpeg 剪輯出所有建議的片段。
-6. 程式將剪輯好的片段合併成一個新影片。
-7. 程式對合併後的影片重新生成字幕。
-8. 彈出字幕編輯器，供使用者修改字幕內容。
-9. 使用者確認後，程式將編輯好的字幕嵌入到影片中。
-10. 輸出最終帶有燒錄字幕的影片。
+---
 
-## 🛠️ 安裝步驟
+## 🚀 核心功能
+
+* **🗂️ 多檔無縫大混剪：** 支援一次匯入多支影片素材。程式會依檔名自動排序、合併成一支「超大母片 (Master Video)」後，再讓 AI 統整上下文進行精華萃取。
+* **🤖 雙 AI 引擎自由切換：** 內建支援 OpenAI (GPT-4o 等) API，也完美支援本地端完全免費、注重隱私的 Ollama (Llama 3, Qwen 等) 模型。
+* **✂️ 智慧分段防崩潰：** 針對超長影片，程式會自動將字幕以「每 30 句」為一組打包發送給 LLM，完美避開 AI 注意力渙散 (Lost in the middle) 或 API 記憶體溢出的問題。
+* **🇹🇼 全自動繁體中文轉換：** 內建 `OpenCC` 套件，生成的字幕無論原本模型吐出什麼，最終都會強制轉換為台灣慣用的標準繁體中文。
+* **📝 圖形化字幕校對器：** 最終精華影片生成後，會彈出 GUI 編輯器讓使用者進行最後的錯字校對，確認無誤後一鍵自動「燒錄 (Hardsub)」進影片中。
+
+---
+
+## 🎬 核心工作流程 (Workflow)
+
+1.  **[多選匯入]** 使用者透過 GUI 一次選取多支原始影片。
+2.  **[標準化合併]** 程式將所有素材轉為 CFR 並無縫合併為一支 `Master_Video.mp4`。
+3.  **[精確聽打]** 使用 WhisperX 生成帶有完美斷句的母片字幕。
+4.  **[AI 挑選]** 字幕分段送給 LLM，LLM 根據你的「提示詞」回傳該保留的精華句子「編號」。
+5.  **[精確切割]** FFmpeg 依據編號還原出精確時間點，使用 `libx264` 精準切下所有精華。
+6.  **[精華融合]** 將所有精華片段黏合成最終的 `final_merged_highlights.mp4`。
+7.  **[最終聽打]** 對這支精華影片**重新跑一次** WhisperX，確保最終字幕的時間軸 100% 貼合畫面。
+8.  **[校對與燒錄]** 彈出編輯器供使用者校對，確認後將字幕永久燒錄至影片。
+
+---
+
+## 🛠️ 安裝與環境建置
 
 ### 前提條件
 
-* **Python:** 確保安裝了 Python 3.8 或更新版本。
-* **FFmpeg:** 需下載 FFmpeg 可執行檔。請訪問 [FFmpeg 官網](https://ffmpeg.org/download.html) 下載適用於你作業系統的版本。下載後，請確保 `ffmpeg.exe` (Windows) 或 `ffmpeg` (Linux/macOS) 可執行檔可以被程式訪問到（通常是設定在程式目錄旁的 `ffmpeg/bin/` 資料夾中）。
-* **OpenAI API Key (如果使用 GPT):** 需要一個有效的 OpenAI API Key (註：目前程式碼預設配置使用 `gpt-4o-mini`)。
-* **Ollama (如果使用本地模型):** 需先安裝並運行 Ollama 服務，並拉取所需的模型 (例如 `llama3.1` 或 `qwen2.5`)。請訪問 [Ollama 官網](https://ollama.com/) 了解安裝方法。
+1.  **Python:** 需安裝 Python 3.8 或以上版本。
+2.  **FFmpeg:** 需下載 FFmpeg 可執行檔，並將其放置於程式目錄旁的 `ffmpeg/bin/` 資料夾中（或透過 GUI 手動指定路徑）。
+3.  **NVIDIA GPU (強烈建議):** WhisperX 依賴強大的顯卡算力，建議配備 NVIDIA 獨立顯卡並安裝適用的 CUDA Toolkit (如 CUDA 12.1)。*(註：若無顯卡，程式將自動降級以 CPU 緩慢運行)*
 
-### 獲取程式碼
+### 獲取程式碼與安裝依賴
 
-克隆此 GitHub 倉庫到你的本地：
+克隆此 GitHub 倉庫到你的本地，並安裝所需的 Python 套件：
 
 ```bash
 git clone https://github.com/ddmmbb-2/Subtitle-Driven-AI-Clipper.git
 cd Subtitle-Driven-AI-Clipper
 
+# 建議安裝支援 GPU 的 PyTorch 版本 (請依據你的 CUDA 版本調整)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# 安裝核心套件
+pip install whisperx openai srt opencc
+```
+
+*(注意：Windows 用戶若在執行 WhisperX 時遇到 `cublas64_12.dll not found` 等錯誤，請確保已正確安裝 CUDA Toolkit 12 或是使用程式內建的 CPU 強制降級模式。)*
+
+---
+
+## ⚙️ 快速上手
+
+1.  在終端機執行 `python newapp.py` (或你的主程式名稱) 啟動應用程式。
+2.  點擊 **「設定」**：
+    * 選擇你要使用的 LLM (OpenAI 或 Ollama)。
+    * 輸入對應的 API Key 或 Base URL。
+    * 確認 FFmpeg 路徑正確。
+    * 可自定義 **AI 提示詞模板**，教導 AI 你的剪輯喜好（例如：「只保留好笑的段落」、「只保留有講到專有名詞的句子」）。
+3.  點擊 **「選擇多段影片並開始處理」**，框選你的素材。
+4.  放著讓電腦跑，喝杯咖啡，等著驗收你的精華短影音！
+
+***
