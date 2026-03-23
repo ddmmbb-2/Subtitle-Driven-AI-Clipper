@@ -26,7 +26,7 @@ import whisperx
 # --- 引入繁簡轉換套件 ---
 try:
     import opencc
-    cc = opencc.OpenCC('s2twp.json') 
+    cc = opencc.OpenCC('s2twp') 
 except ImportError:
     cc = None
     print("⚠️ 警告: 未安裝 opencc，將略過繁體轉換。建議執行 `pip install opencc`")
@@ -86,6 +86,47 @@ def save_config():
         print("✅ 配置儲存成功")
     except Exception as e:
          messagebox.showerror("儲存錯誤", f"儲存配置時發生錯誤: {e}")
+
+# --- 進度視窗與日誌重導向 ---
+class LogWindow(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("執行進度與日誌 (關閉此視窗會隱藏，不會中斷)")
+        self.geometry("700x500")
+        self.protocol("WM_DELETE_WINDOW", self.hide_window)
+        
+        self.text_area = scrolledtext.ScrolledText(self, wrap=tk.WORD, state=tk.DISABLED, bg="black", fg="lightgreen", font=("Consolas", 10))
+        self.text_area.pack(expand=True, fill=tk.BOTH, padx=5, pady=5)
+        
+    def hide_window(self):
+        self.withdraw()
+        
+    def add_log(self, message):
+        self.text_area.config(state=tk.NORMAL)
+        self.text_area.insert(tk.END, message + "\n")
+        self.text_area.see(tk.END)
+        self.text_area.config(state=tk.DISABLED)
+
+class StreamRedirector:
+    """攔截 print 輸出，導向至 Tkinter 視窗，防止包裝成 EXE 後崩潰"""
+    def __init__(self, log_callback):
+        self.log_callback = log_callback
+        self.buffer = ""
+        
+    def write(self, text):
+        if not text: return
+        self.buffer += text
+        if '\n' in self.buffer:
+            lines = self.buffer.split('\n')
+            for line in lines[:-1]:
+                if line.strip() or True: # Keep empty lines for formatting
+                    self.log_callback(line)
+            self.buffer = lines[-1]
+            
+    def flush(self):
+        if self.buffer:
+            self.log_callback(self.buffer)
+            self.buffer = ""
 
 # --- GUI Elements ---
 class SettingsWindow(tk.Toplevel):
@@ -245,7 +286,6 @@ def hms_to_sec(hms: str) -> float:
     except ValueError:
         return 0.0
 
-# 🚀 升級：基於「聲音停頓」的智慧斷句法
 def write_aligned_srt(aligned_result, srt_path, pause_threshold=0.4, max_chars=35):
     with open(srt_path, "w", encoding="utf-8") as f:
         valid_index = 1
@@ -317,11 +357,27 @@ class VideoEditorApp:
         self.temp_files_to_delete = [] 
         self.temp_clips = []
         
+        # GPU/CPU 運行參數
+        self.ai_device = "cpu"
+        self.ai_compute_type = "int8"
+        
         load_config()
+
+        # 建立進度視窗並重導向 print
+        self.log_window = LogWindow(self.root)
+        self.log_window.withdraw() # 初始隱藏
+        
+        redirector = StreamRedirector(self._gui_log)
+        sys.stdout = redirector
+        sys.stderr = redirector
 
         tk.Button(self.root, text="設定", command=self.open_settings).pack(pady=10)
         tk.Button(self.root, text="選擇多段影片並開始處理", command=self.start_processing_workflow).pack(pady=10)
         tk.Button(self.root, text="離開", command=self.root.quit).pack(pady=10)
+
+    def _gui_log(self, message):
+        """將日誌拋回主執行緒更新 UI"""
+        self.root.after(0, self.log_window.add_log, message)
 
     def open_settings(self):
         SettingsWindow(self.root)
@@ -338,17 +394,22 @@ class VideoEditorApp:
 
     def start_processing_workflow(self):
         if not self.check_configuration(): return
-        threading.Thread(target=self._processing_workflow_thread).start()
-
-    def _processing_workflow_thread(self):
-        self.root.after(0, self._select_videos_in_main_thread)
-
-    def _select_videos_in_main_thread(self):
+        
         filenames = filedialog.askopenfilenames(title="選擇影片 (將依檔名順序合併後再統一剪輯)", filetypes=[("Video Files", "*.mp4;*.mkv;*.mov")])
         if not filenames: return
-        
         self.video_paths = sorted(list(filenames))
         
+        # 顯示日誌視窗
+        self.log_window.deiconify()
+        
+        # 開啟獨立 Thread 防止主視窗卡死
+        threading.Thread(target=self._processing_workflow_thread, daemon=True).start()
+
+    def _processing_workflow_thread(self):
+        # 1. 環境檢測 (自動判斷 GPU / CPU)
+        self.test_environment()
+        
+        # 2. 準備路徑
         self.master_video_path = os.path.join(self.output_dir, "00_Master_Input.mp4") 
         self.master_srt_path = os.path.join(self.output_dir, "00_Master_Input.srt")   
         self.merged_video_path = os.path.join(self.output_dir, "final_merged_highlights.mp4") 
@@ -357,11 +418,31 @@ class VideoEditorApp:
         self.temp_files_to_delete = []
         self.temp_clips = []
 
-        threading.Thread(target=self._prepare_and_process_master_video).start()
+        self._prepare_and_process_master_video()
 
-    # 🚀 升級：將 WhisperX 獨立為共用模組，解決程式碼重複問題
+    def test_environment(self):
+        print("\n" + "="*50)
+        print("🔍 [硬體檢測] 測試 WhisperX 硬體加速支援度...")
+        try:
+            if torch.cuda.is_available():
+                print("✨ 偵測到 CUDA，測試 GPU 記憶體分配...")
+                _ = torch.zeros(1).cuda() # 實際拋到 GPU 測試
+                self.ai_device = "cuda"
+                self.ai_compute_type = "float16"
+                print(f"✅ 測試成功！將使用硬體加速: {self.ai_device} ({self.ai_compute_type})")
+            else:
+                print("⚠️ 未偵測到 CUDA (或未安裝 PyTorch CUDA 版本)。")
+                self.ai_device = "cpu"
+                self.ai_compute_type = "int8"
+                print(f"✅ 將降級使用安全模式: {self.ai_device} ({self.ai_compute_type})")
+        except Exception as e:
+            print(f"❌ GPU 測試發生錯誤: {e}")
+            self.ai_device = "cpu"
+            self.ai_compute_type = "int8"
+            print(f"✅ 強制降級使用安全模式: {self.ai_device} ({self.ai_compute_type})")
+        print("="*50 + "\n")
+
     def run_whisperx(self, input_video, output_srt):
-        """共用的 WhisperX 聽打與對齊模組"""
         if os.path.exists(output_srt):
             print(f"✅ 已找到現有字幕檔案：{output_srt}")
             return True
@@ -369,11 +450,9 @@ class VideoEditorApp:
         print(f"\n🔍 開始使用 WhisperX 處理影片：{os.path.basename(input_video)}")
         try:
             whisper_model_name = app_config.get("whisper_model", "small")
-            device = "cpu"
-            compute_type = "int8"
             
             print(f"✨ 載入模型 {whisper_model_name} (這可能需要一段時間)...")
-            model = whisperx.load_model(whisper_model_name, device, compute_type=compute_type)
+            model = whisperx.load_model(whisper_model_name, self.ai_device, compute_type=self.ai_compute_type)
             audio = whisperx.load_audio(input_video)
             
             print("✨ 進行初步轉錄...")
@@ -381,8 +460,8 @@ class VideoEditorApp:
             
             print("✨ 進行字級時間軸強制對齊 (Forced Alignment)...")
             language_code = result["language"] 
-            model_a, metadata = whisperx.load_align_model(language_code=language_code, device=device)
-            aligned_result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+            model_a, metadata = whisperx.load_align_model(language_code=language_code, device=self.ai_device)
+            aligned_result = whisperx.align(result["segments"], model_a, metadata, audio, self.ai_device, return_char_alignments=False)
             
             print("✨ 根據語音停頓進行智慧斷句並轉換繁體...")
             write_aligned_srt(aligned_result, output_srt)
@@ -395,9 +474,7 @@ class VideoEditorApp:
             return False
 
     def _prepare_and_process_master_video(self):
-        print("\n" + "="*50)
         print("🎬 [階段一] 將所有素材標準化並合併為「單一超大影片」")
-        print("="*50)
 
         raw_concat_list_path = os.path.join(self.output_dir, "raw_concat_list.txt")
         self.temp_files_to_delete.append(raw_concat_list_path)
@@ -441,7 +518,6 @@ class VideoEditorApp:
         print("🎬 [階段二] 開始對 Master Video 進行 AI 聽打與精華剪輯")
         print("="*50)
 
-        # 🚀 改用模組化的 WhisperX 函式
         if not self.run_whisperx(self.master_video_path, self.master_srt_path):
             return
         
@@ -589,7 +665,6 @@ class VideoEditorApp:
             subprocess.run(cmd_concat, check=True, capture_output=True, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             print(f"🎉 精華合併完成！輸出於：{self.merged_video_path}")
             
-            # 合併完畢後，直接對最終影片重新生一次字幕
             print("\n" + "="*50)
             print("🎬 [階段三] 為最終精華影片重新製作完美對齊的字幕")
             print("="*50)
@@ -617,11 +692,11 @@ class VideoEditorApp:
 
     def prompt_final_merge(self):
         if messagebox.askyesno("確認燒錄", "是否將最終字幕燒錄（嵌入）到精華影片中？", icon='question'):
-            threading.Thread(target=self.embed_subtitles_to_video).start()
+            threading.Thread(target=self.embed_subtitles_to_video, daemon=True).start()
 
     def embed_subtitles_to_video(self):
         final_output_with_subs = os.path.join(self.output_dir, "final_with_subs.mp4")
-        print(f"🚀 燒錄字幕中...")
+        print(f"🚀 燒錄字幕中，請稍等...")
 
         cmd_embed = [
             self.ffmpeg_path,
@@ -635,12 +710,13 @@ class VideoEditorApp:
         ]
         
         try:
-            self.root.after(0, messagebox.showinfo, "開始燒錄", "開始將字幕燒錄進精華影片，請稍候...")
             process = subprocess.Popen(cmd_embed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             stdout, stderr = process.communicate()
             if process.returncode == 0:
                 print(f"🎉 完成！帶有字幕的精華輸出於：{final_output_with_subs}")
                 self.root.after(0, messagebox.showinfo, "完成", f"處理完成！\n{final_output_with_subs}")
+            else:
+                print(f"❌ 燒錄報錯: {stderr}")
         except Exception as e:
              print(f"❌ 燒錄異常: {e}")
 
